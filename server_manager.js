@@ -4,7 +4,35 @@ const readline = require('readline');
 const stream   = require('stream');
 const { start } = require('repl');
 var spawn = require("child_process").spawn;
+var eula = false;
+var eula_prompted = false;
+var java_paths = ["java.exe"];
+var java_pathsFile = [];
+var selectedJava_path = "java.exe";
 
+try{
+  eula = fs.readFileSync("eula.txt").toString().split("=")[1]
+}catch{
+  eula = false;
+}
+
+for(var i = 0; i < process.env.Path.split(";").length; i++){
+  if(process.env.Path.split(";")[i].match(/java/gi)){
+    java_paths.push(process.env.Path.split(";")[i])
+  }
+}
+if(fs.existsSync("./java_paths")){
+  java_pathsFile = fs.readFileSync("./java_paths").toString().split("\n");
+}else{
+  fs.writeFileSync("./java_paths",'');
+}
+if(!fs.existsSync("./selected_java_version_path")){
+  fs.writeFileSync("./selected_java_version_path",selectedJava_path);
+}
+
+for(var i = 0; i < java_pathsFile.length; i++){
+  java_paths.push(java_pathsFile[i]);
+}
 
 /* START functions needed at boot */
 function parseBool(payload){
@@ -141,6 +169,9 @@ var last_player_check = (new Date).getTime();
 var pl_chk_now = last_player_check;
 var online_players = 0;
 var playerCheckInterval;
+var javaBaseArgs;
+//javaBaseArgs = ['-Dfile.encoding=UTF-8', "-server", "-Xms2G", "-"+minecraft_server_ram, "-XX:+UseParallelGC",  "-jar "+server_version, "nogui"];
+var serverArgs = [];
 
 const backup_loc = '../backups/'
 const seven_zip_loc = 'C:\\Programs\\7za\\7za.exe'
@@ -207,6 +238,7 @@ var web_updater;
 var working_data;
 var tempData = [];
 var conLog = [];
+
 try{
   server_name = fs.readFileSync("server_name").toString()
 }
@@ -331,7 +363,7 @@ var end_html = '</div><script>logItems = document.querySelectorAll(".log_line");
 //setTimeout(function(){lastLogItem.scrollIntoView()}, 500)
 
 function toggleFile(file,state){
-  console.log(friendlyTimestamp()+" [INTERNAL] toggleFile("+file+","+state+")");
+  //console.log(friendlyTimestamp()+" [INTERNAL] toggleFile("+file+","+state+")");
   fs.writeFile(file, state, (err) => {
     if (err) throw err;
   });
@@ -355,6 +387,23 @@ function readVersion(ver){
     }
     for(ix=0;ix<current_server_versions.length;ix++){
       console.log(friendlyTimestamp()+" [INTERNAL] node: "+ix+": "+current_server_versions[ix]);
+    }
+  }
+}
+function readJavaVersions(ver){
+  if(ver){
+    selectedJava_path = java_paths[ver];
+    if(!selectedJava_path.match(/javaw{0,1}\.exe/g)){
+      selectedJava_path+="\\java.exe"
+    }
+    toggleFile('./java_selected_version_path',selectedJava_path);
+    console.log(friendlyTimestamp()+" [INTERNAL] node: Server version switched to: "+selectedJava_path);
+  }
+  else{
+    console.log(friendlyTimestamp()+" [INTERNAL] node: Server version is currently set to: "+selectedJava_path);
+    console.log(friendlyTimestamp()+" [INTERNAL] node: Server versions available:");
+    for(ix=0;ix<java_paths.length;ix++){
+      console.log(friendlyTimestamp()+" [INTERNAL] node: "+ix+": "+java_paths[ix]);
     }
   }
 }
@@ -400,6 +449,16 @@ function connectionLog(data){
 function update_variables(){
   readProperties();
   //listMessage = '[<red_text>Offline</red_text>] There are 0 out of '+max_players.toString()+' players online.'
+  //read selected_java_version_path
+  try{
+    selectedJava_path = fs.readFileSync("./selected_java_version_path").toString();
+    console.log(friendlyTimestamp()+" [DEBUG] "+selectedJava_path);
+    console.log(`${friendlyTimestamp()} [DEBUG] ${fs.readFileSync("./selected_java_version_path").toString()}`)
+  }catch(err){
+    console.log(friendlyTimestamp()+" [ERROR] node:"+err.toString());
+    console.log(friendlyTimestamp()+" [INTERNAL] node: Defaulting to standard path");
+    readJavaVersions(0);
+  }
 
   //read reboot
   try{
@@ -456,6 +515,22 @@ function update_variables(){
     allow_player_requests = true
   }
 
+  //Hardcoding certain java serverArgs:
+  javaBaseArgs = ['-Dfile.encoding=UTF-8', "-server", "-Xms2G", "-"+minecraft_server_ram, "-XX:+UseParallelGC",  "-jar", server_version, "nogui"];
+  serverArgs = [];
+  try{
+    serverArgs = fs.readFileSync("./java_args").toString().split("\n")
+  }catch{
+    console.log(friendlyTimestamp()+" [ERROR] Failed to load java argument list, please make sure the file \"java_args\" is available in root directory.")
+    serverArgs = [];
+  }
+  if(serverArgs[0] == ""){
+    serverArgs.pop()
+  }
+  for(var i = 0; i < javaBaseArgs.length; i++){
+    serverArgs.push(javaBaseArgs[i]);
+  }
+
   minecraft_version.read()
 
   
@@ -467,6 +542,9 @@ function update_variables(){
   console.log(friendlyTimestamp()+" [INTERNAL] "+"whitelist: "+whitelist.toString())
   console.log(friendlyTimestamp()+" [INTERNAL] "+"allow_player_requests: "+allow_player_requests.toString())
   console.log(friendlyTimestamp()+" [INTERNAL] "+ "minecraft_version.stored: "+minecraft_version.stored)
+  console.log(friendlyTimestamp()+" [INTERNAL] "+ "Selected Java Version Path: "+selectedJava_path)
+  console.log("\n")
+  console.log(`${friendlyTimestamp()} [INTERNAL] Java arguments;\nBase: ${javaBaseArgs}\nCustom: ${serverArgs}\n${friendlyTimestamp()} END OF ARGUMENTS`);
 }
 
 //loop the player check function
@@ -566,8 +644,18 @@ function parseNodeCommands(command){
 console.clear()
 
 function start_minecraft_server(){
+  if(!eula && eula_prompted){
+    fs.writeFileSync("eula.txt","eula=true");
+    eula = true;
+  }else if(!eula){
+    console.log(friendlyTimestamp()+" [ERROR] EULA has not yet been accepted, make sure you read it before accepting.")
+    console.log(friendlyTimestamp()+" [INTERNAL] If you accept the EULA, just run .start again. (EULA will be automatically accepted.)")
+    eula_prompted = true
+    return false;
+  }
   server_running = !server_running;
-  minecraft_server = spawn("java.exe",['-Dfile.encoding=UTF-8', "-server", "-Xms2G", "-"+minecraft_server_ram, "-XX:+UseParallelGC", "-d64" ,  "-jar", server_version, "nogui"]);
+  console.log(friendlyTimestamp()+" [DEBUG] "+selectedJava_path+","+serverArgs)
+  minecraft_server = spawn(selectedJava_path,serverArgs);
   if(do_shutdown){
     console.log(friendlyTimestamp()+" [INTERNAL] Running player check every "+(player_check_timer/1000)+" seconds");
     try{  
@@ -744,6 +832,7 @@ rl.on('line', (input) => {
     console.log(".exit - Exit Server Manager, kills server if running.")
     console.log("t.[B|R|S|AR] - Toggle Backup|Reboot|Shutdown|AllowRequest.")
     console.log(".switch_version - Server selection.")
+    console.log(".setJavaVersion - Java version selection.")
     console.log(".start | .start_minecraft_server - Starts the minecraft server.")
     console.log("j.[*] - Sends commands to the java instance.")
     console.log("j.save | j.save-all - Tells minecraft to save.")
@@ -850,6 +939,20 @@ rl.on('line', (input) => {
     else{
     readVersion();
     }
+  }else if(input.match(/\.setJavaVersion.*/gi)){
+    if(input.toString().split(' ')[1]){
+      var temp_input = input.toString().split(' ');
+      if(temp_input[1].match(/\d/g)){
+        readJavaVersions(temp_input[1]);
+      }
+      else{
+
+        console.log(friendlyTimestamp()+" [ERROR] node: argument needs to be a digit.")
+      }
+    }
+    else{
+    readJavaVersions();
+    }
   }
   else if(input == ".start_minecraft_server" || input == ".start"){
     if(!server_running){
@@ -919,6 +1022,7 @@ function playerQuery(){
 //Start actual program
 console.log(friendlyTimestamp()+" [INTERNAL] Running server_manager.js in: "+server_name);
 update_variables();
+console.log("\n")
 readVersion();
 /* setInterval(playerQuery,60000); */
 /* start_minecraft_server(); */
