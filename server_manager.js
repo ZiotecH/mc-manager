@@ -310,7 +310,7 @@ interface_div_content += 'Server jar is: '+(server_version.toString())+'<br/>';
 interface_div_content += 'Server version is: '+minecraft_version.read()+'<br/>'
 interface_div_content += '<br/>'
 //server connection details
-interface_div_content += 'Server connection details: <b>voip.fetafisken.se:'+(minecraft_server_port).toString()+'</b><br/>';
+interface_div_content += 'Server connection details: <b>'+host_address+':'+(minecraft_server_port).toString()+'</b><br/>';
 //players online
 interface_div_content += listMessage + "<br/>"
 interface_div_content += '<br/>'
